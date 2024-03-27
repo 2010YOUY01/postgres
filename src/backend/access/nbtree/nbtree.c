@@ -88,7 +88,6 @@ bthandler(PG_FUNCTION_ARGS)
 	amroutine->amstrategies = BTMaxStrategyNumber;
 	amroutine->amsupport = BTNProcs;
 	amroutine->amcanorder = true;
-	amroutine->amcanorderbyop = false;
 	amroutine->amcanbackward = true;
 	amroutine->amcanunique = true;
 	amroutine->amcanmulticol = true;
@@ -117,6 +116,7 @@ bthandler(PG_FUNCTION_ARGS)
 	amroutine->amendscan = btendscan;
 	amroutine->ammarkpos = btmarkpos;
 	amroutine->amrestrpos = btrestrpos;
+	amroutine->amcanorderbyop = NULL;
 
 	PG_RETURN_POINTER(amroutine);
 }

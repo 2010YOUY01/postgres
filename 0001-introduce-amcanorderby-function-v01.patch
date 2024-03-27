@@ -1,0 +1,394 @@
+diff --git a/contrib/bloom/blutils.c b/contrib/bloom/blutils.c
+index 06077af..cb0f5f9 100644
+--- a/contrib/bloom/blutils.c
++++ b/contrib/bloom/blutils.c
+@@ -109,7 +109,6 @@ blhandler(PG_FUNCTION_ARGS)
+ 	amroutine->amstrategies = BLOOM_NSTRATEGIES;
+ 	amroutine->amsupport = BLOOM_NPROC;
+ 	amroutine->amcanorder = false;
+-	amroutine->amcanorderbyop = false;
+ 	amroutine->amcanbackward = false;
+ 	amroutine->amcanunique = false;
+ 	amroutine->amcanmulticol = true;
+@@ -138,6 +137,7 @@ blhandler(PG_FUNCTION_ARGS)
+ 	amroutine->amendscan = blendscan;
+ 	amroutine->ammarkpos = NULL;
+ 	amroutine->amrestrpos = NULL;
++	amroutine->amcanorderbyop = NULL;
+ 
+ 	PG_RETURN_POINTER(amroutine);
+ }
+diff --git a/src/backend/access/brin/brin.c b/src/backend/access/brin/brin.c
+index 3fce672..e85e224 100644
+--- a/src/backend/access/brin/brin.c
++++ b/src/backend/access/brin/brin.c
+@@ -82,7 +82,6 @@ brinhandler(PG_FUNCTION_ARGS)
+ 	amroutine->amstrategies = 0;
+ 	amroutine->amsupport = BRIN_LAST_OPTIONAL_PROCNUM;
+ 	amroutine->amcanorder = false;
+-	amroutine->amcanorderbyop = false;
+ 	amroutine->amcanbackward = false;
+ 	amroutine->amcanunique = false;
+ 	amroutine->amcanmulticol = true;
+@@ -111,6 +110,7 @@ brinhandler(PG_FUNCTION_ARGS)
+ 	amroutine->amendscan = brinendscan;
+ 	amroutine->ammarkpos = NULL;
+ 	amroutine->amrestrpos = NULL;
++	amroutine->amcanorderbyop = NULL;
+ 
+ 	PG_RETURN_POINTER(amroutine);
+ }
+diff --git a/src/backend/access/gin/ginutil.c b/src/backend/access/gin/ginutil.c
+index 3909638..c7ff0fd 100644
+--- a/src/backend/access/gin/ginutil.c
++++ b/src/backend/access/gin/ginutil.c
+@@ -39,7 +39,6 @@ ginhandler(PG_FUNCTION_ARGS)
+ 	amroutine->amstrategies = 0;
+ 	amroutine->amsupport = GINNProcs;
+ 	amroutine->amcanorder = false;
+-	amroutine->amcanorderbyop = false;
+ 	amroutine->amcanbackward = false;
+ 	amroutine->amcanunique = false;
+ 	amroutine->amcanmulticol = true;
+@@ -68,6 +67,7 @@ ginhandler(PG_FUNCTION_ARGS)
+ 	amroutine->amendscan = ginendscan;
+ 	amroutine->ammarkpos = NULL;
+ 	amroutine->amrestrpos = NULL;
++	amroutine->amcanorderbyop = NULL;
+ 
+ 	PG_RETURN_POINTER(amroutine);
+ }
+diff --git a/src/backend/access/gist/gist.c b/src/backend/access/gist/gist.c
+index 4092a8b..504d9ee 100644
+--- a/src/backend/access/gist/gist.c
++++ b/src/backend/access/gist/gist.c
+@@ -59,7 +59,6 @@ gisthandler(PG_FUNCTION_ARGS)
+ 	amroutine->amstrategies = 0;
+ 	amroutine->amsupport = GISTNProcs;
+ 	amroutine->amcanorder = false;
+-	amroutine->amcanorderbyop = true;
+ 	amroutine->amcanbackward = false;
+ 	amroutine->amcanunique = false;
+ 	amroutine->amcanmulticol = true;
+@@ -88,6 +87,7 @@ gisthandler(PG_FUNCTION_ARGS)
+ 	amroutine->amendscan = gistendscan;
+ 	amroutine->ammarkpos = NULL;
+ 	amroutine->amrestrpos = NULL;
++	amroutine->amcanorderbyop = gistcanorderbyop;
+ 
+ 	PG_RETURN_POINTER(amroutine);
+ }
+diff --git a/src/backend/access/gist/gistutil.c b/src/backend/access/gist/gistutil.c
+index f92baed..159987e 100644
+--- a/src/backend/access/gist/gistutil.c
++++ b/src/backend/access/gist/gistutil.c
+@@ -19,6 +19,7 @@
+ #include "access/htup_details.h"
+ #include "access/reloptions.h"
+ #include "catalog/pg_opclass.h"
++#include "optimizer/paths.h"
+ #include "storage/indexfsm.h"
+ #include "storage/lmgr.h"
+ #include "utils/builtins.h"
+@@ -964,3 +965,31 @@ gistGetFakeLSN(Relation rel)
+ 		return GetFakeLSNForUnloggedRel();
+ 	}
+ }
++
++/* gistcanorderbyop() */
++Expr *
++gistcanorderbyop(IndexOptInfo *index, PathKey *pathkey, int pathkeyno,
++				 Expr *orderby_clause, int *indexcol_p)
++{
++	int		indexcol;
++
++	/*
++	 * We allow any column of the GiST index to match each pathkey;
++	 * they don't have to match left-to-right as you might expect.
++	 */
++
++	for (indexcol = 0; indexcol < index->ncolumns; indexcol++)
++	{
++		Expr	   *expr = match_clause_to_ordering_op(index,
++													   indexcol,
++													   orderby_clause,
++													   pathkey->pk_opfamily);
++		if (expr)
++		{
++			*indexcol_p = indexcol;
++			return expr;
++		}
++	}
++
++	return NULL;
++}
+diff --git a/src/backend/access/hash/hash.c b/src/backend/access/hash/hash.c
+index 0cbf6b0..8cdefac 100644
+--- a/src/backend/access/hash/hash.c
++++ b/src/backend/access/hash/hash.c
+@@ -56,7 +56,6 @@ hashhandler(PG_FUNCTION_ARGS)
+ 	amroutine->amstrategies = HTMaxStrategyNumber;
+ 	amroutine->amsupport = HASHNProcs;
+ 	amroutine->amcanorder = false;
+-	amroutine->amcanorderbyop = false;
+ 	amroutine->amcanbackward = true;
+ 	amroutine->amcanunique = false;
+ 	amroutine->amcanmulticol = false;
+@@ -85,6 +84,7 @@ hashhandler(PG_FUNCTION_ARGS)
+ 	amroutine->amendscan = hashendscan;
+ 	amroutine->ammarkpos = NULL;
+ 	amroutine->amrestrpos = NULL;
++	amroutine->amcanorderbyop = NULL;
+ 
+ 	PG_RETURN_POINTER(amroutine);
+ }
+diff --git a/src/backend/access/nbtree/nbtree.c b/src/backend/access/nbtree/nbtree.c
+index c6eed63..9e4384a 100644
+--- a/src/backend/access/nbtree/nbtree.c
++++ b/src/backend/access/nbtree/nbtree.c
+@@ -88,7 +88,6 @@ bthandler(PG_FUNCTION_ARGS)
+ 	amroutine->amstrategies = BTMaxStrategyNumber;
+ 	amroutine->amsupport = BTNProcs;
+ 	amroutine->amcanorder = true;
+-	amroutine->amcanorderbyop = false;
+ 	amroutine->amcanbackward = true;
+ 	amroutine->amcanunique = true;
+ 	amroutine->amcanmulticol = true;
+@@ -117,6 +116,7 @@ bthandler(PG_FUNCTION_ARGS)
+ 	amroutine->amendscan = btendscan;
+ 	amroutine->ammarkpos = btmarkpos;
+ 	amroutine->amrestrpos = btrestrpos;
++	amroutine->amcanorderbyop = NULL;
+ 
+ 	PG_RETURN_POINTER(amroutine);
+ }
+diff --git a/src/backend/access/spgist/spgutils.c b/src/backend/access/spgist/spgutils.c
+index b9e4940..f18b0bc 100644
+--- a/src/backend/access/spgist/spgutils.c
++++ b/src/backend/access/spgist/spgutils.c
+@@ -38,7 +38,6 @@ spghandler(PG_FUNCTION_ARGS)
+ 	amroutine->amstrategies = 0;
+ 	amroutine->amsupport = SPGISTNProc;
+ 	amroutine->amcanorder = false;
+-	amroutine->amcanorderbyop = false;
+ 	amroutine->amcanbackward = false;
+ 	amroutine->amcanunique = false;
+ 	amroutine->amcanmulticol = false;
+@@ -67,6 +66,7 @@ spghandler(PG_FUNCTION_ARGS)
+ 	amroutine->amendscan = spgendscan;
+ 	amroutine->ammarkpos = NULL;
+ 	amroutine->amrestrpos = NULL;
++	amroutine->amcanorderbyop = NULL;
+ 
+ 	PG_RETURN_POINTER(amroutine);
+ }
+diff --git a/src/backend/optimizer/path/indxpath.c b/src/backend/optimizer/path/indxpath.c
+index 0a5c050..b9b4701 100644
+--- a/src/backend/optimizer/path/indxpath.c
++++ b/src/backend/optimizer/path/indxpath.c
+@@ -17,6 +17,7 @@
+ 
+ #include <math.h>
+ 
++#include "access/amapi.h"
+ #include "access/stratnum.h"
+ #include "access/sysattr.h"
+ #include "catalog/pg_am.h"
+@@ -166,8 +167,6 @@ static bool match_rowcompare_to_indexcol(IndexOptInfo *index,
+ static void match_pathkeys_to_index(IndexOptInfo *index, List *pathkeys,
+ 						List **orderby_clauses_p,
+ 						List **clause_columns_p);
+-static Expr *match_clause_to_ordering_op(IndexOptInfo *index,
+-							int indexcol, Expr *clause, Oid pk_opfamily);
+ static bool ec_member_matches_indexcol(PlannerInfo *root, RelOptInfo *rel,
+ 						   EquivalenceClass *ec, EquivalenceMember *em,
+ 						   void *arg);
+@@ -2473,12 +2472,15 @@ match_pathkeys_to_index(IndexOptInfo *index, List *pathkeys,
+ 	List	   *orderby_clauses = NIL;
+ 	List	   *clause_columns = NIL;
+ 	ListCell   *lc1;
++	int			pathkeyno = 1;
++	amcanorderbyop_function amcanorderbyop =
++			(amcanorderbyop_function) index->amcanorderbyop;
+ 
+ 	*orderby_clauses_p = NIL;	/* set default results */
+ 	*clause_columns_p = NIL;
+ 
+-	/* Only indexes with the amcanorderbyop property are interesting here */
+-	if (!index->amcanorderbyop)
++	/* Only indexes with the amcanorderbyop function are interesting here */
++	if (!amcanorderbyop)
+ 		return;
+ 
+ 	foreach(lc1, pathkeys)
+@@ -2512,42 +2514,29 @@ match_pathkeys_to_index(IndexOptInfo *index, List *pathkeys,
+ 		foreach(lc2, pathkey->pk_eclass->ec_members)
+ 		{
+ 			EquivalenceMember *member = (EquivalenceMember *) lfirst(lc2);
++			Expr	   *expr;
+ 			int			indexcol;
+ 
+ 			/* No possibility of match if it references other relations */
+ 			if (!bms_equal(member->em_relids, index->rel->relids))
+ 				continue;
+ 
+-			/*
+-			 * We allow any column of the index to match each pathkey; they
+-			 * don't have to match left-to-right as you might expect.  This is
+-			 * correct for GiST, which is the sole existing AM supporting
+-			 * amcanorderbyop.  We might need different logic in future for
+-			 * other implementations.
+-			 */
+-			for (indexcol = 0; indexcol < index->ncolumns; indexcol++)
+-			{
+-				Expr	   *expr;
++			expr = amcanorderbyop(index, pathkey, pathkeyno, member->em_expr,
++								  &indexcol);
+ 
+-				expr = match_clause_to_ordering_op(index,
+-												   indexcol,
+-												   member->em_expr,
+-												   pathkey->pk_opfamily);
+-				if (expr)
+-				{
+-					orderby_clauses = lappend(orderby_clauses, expr);
+-					clause_columns = lappend_int(clause_columns, indexcol);
+-					found = true;
+-					break;
+-				}
++			if (expr)
++			{
++				orderby_clauses = lappend(orderby_clauses, expr);
++				clause_columns = lappend_int(clause_columns, indexcol);
++				found = true;
++				break; /* don't want to look at remaining members */
+ 			}
+-
+-			if (found)			/* don't want to look at remaining members */
+-				break;
+ 		}
+ 
+ 		if (!found)				/* fail if no match for this pathkey */
+ 			return;
++
++		pathkeyno++;
+ 	}
+ 
+ 	*orderby_clauses_p = orderby_clauses;		/* success! */
+@@ -2579,7 +2568,7 @@ match_pathkeys_to_index(IndexOptInfo *index, List *pathkeys,
+  * If successful, return 'clause' as-is if the indexkey is on the left,
+  * otherwise a commuted copy of 'clause'.  If no match, return NULL.
+  */
+-static Expr *
++Expr *
+ match_clause_to_ordering_op(IndexOptInfo *index,
+ 							int indexcol,
+ 							Expr *clause,
+diff --git a/src/backend/optimizer/util/plancat.c b/src/backend/optimizer/util/plancat.c
+index 7836e6b..93bda0f 100644
+--- a/src/backend/optimizer/util/plancat.c
++++ b/src/backend/optimizer/util/plancat.c
+@@ -237,7 +237,7 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
+ 
+ 			/* We copy just the fields we need, not all of rd_amroutine */
+ 			amroutine = indexRelation->rd_amroutine;
+-			info->amcanorderbyop = amroutine->amcanorderbyop;
++			info->amcanorderbyop = (void (*)()) amroutine->amcanorderbyop;
+ 			info->amoptionalkey = amroutine->amoptionalkey;
+ 			info->amsearcharray = amroutine->amsearcharray;
+ 			info->amsearchnulls = amroutine->amsearchnulls;
+diff --git a/src/include/access/amapi.h b/src/include/access/amapi.h
+index 48b0cc0..436c5f8 100644
+--- a/src/include/access/amapi.h
++++ b/src/include/access/amapi.h
+@@ -21,6 +21,9 @@
+  */
+ struct PlannerInfo;
+ struct IndexPath;
++struct IndexOptInfo;
++struct PathKey;
++struct Expr;
+ 
+ /* Likewise, this file shouldn't depend on execnodes.h. */
+ struct IndexInfo;
+@@ -137,6 +140,12 @@ typedef void (*ammarkpos_function) (IndexScanDesc scan);
+ /* restore marked scan position */
+ typedef void (*amrestrpos_function) (IndexScanDesc scan);
+ 
++/* does AM support ORDER BY result of an operator on indexed column? */
++typedef struct Expr *(*amcanorderbyop_function) (struct IndexOptInfo *index,
++												 struct PathKey *pathkey,
++												 int pathkeyno,
++												 struct Expr *orderby_clause,
++												 int *indexcol_p);
+ 
+ /*
+  * API struct for an index AM.  Note this must be stored in a single palloc'd
+@@ -155,8 +164,6 @@ typedef struct IndexAmRoutine
+ 	uint16		amsupport;
+ 	/* does AM support ORDER BY indexed column's value? */
+ 	bool		amcanorder;
+-	/* does AM support ORDER BY result of an operator on indexed column? */
+-	bool		amcanorderbyop;
+ 	/* does AM support backward scanning? */
+ 	bool		amcanbackward;
+ 	/* does AM support UNIQUE indexes? */
+@@ -196,6 +203,7 @@ typedef struct IndexAmRoutine
+ 	amendscan_function amendscan;
+ 	ammarkpos_function ammarkpos;		/* can be NULL */
+ 	amrestrpos_function amrestrpos;		/* can be NULL */
++	amcanorderbyop_function amcanorderbyop; /* can be NULL */
+ } IndexAmRoutine;
+ 
+ 
+diff --git a/src/include/access/gist_private.h b/src/include/access/gist_private.h
+index 72f52d4..0d35646 100644
+--- a/src/include/access/gist_private.h
++++ b/src/include/access/gist_private.h
+@@ -538,6 +538,11 @@ extern void gistMakeUnionKey(GISTSTATE *giststate, int attno,
+ 
+ extern XLogRecPtr gistGetFakeLSN(Relation rel);
+ 
++extern struct Expr *gistcanorderbyop(struct IndexOptInfo *index,
++									 struct PathKey *pathkey,  int pathkeyno,
++									 struct Expr *orderby_clause,
++									 int *indexcol_p);
++
+ /* gistvacuum.c */
+ extern IndexBulkDeleteResult *gistbulkdelete(IndexVacuumInfo *info,
+ 			   IndexBulkDeleteResult *stats,
+diff --git a/src/include/nodes/relation.h b/src/include/nodes/relation.h
+index e1d31c7..ccf282a 100644
+--- a/src/include/nodes/relation.h
++++ b/src/include/nodes/relation.h
+@@ -616,7 +616,6 @@ typedef struct IndexOptInfo
+ 	bool		hypothetical;	/* true if index doesn't really exist */
+ 
+ 	/* Remaining fields are copied from the index AM's API struct: */
+-	bool		amcanorderbyop; /* does AM support order by operator result? */
+ 	bool		amoptionalkey;	/* can query omit key for the first column? */
+ 	bool		amsearcharray;	/* can AM handle ScalarArrayOpExpr quals? */
+ 	bool		amsearchnulls;	/* can AM search for NULL/NOT NULL entries? */
+@@ -624,6 +623,7 @@ typedef struct IndexOptInfo
+ 	bool		amhasgetbitmap; /* does AM have amgetbitmap interface? */
+ 	/* Rather than include amapi.h here, we declare amcostestimate like this */
+ 	void		(*amcostestimate) ();	/* AM's cost estimator */
++	void		(*amcanorderbyop) ();	/* does AM support order by operator result? */
+ } IndexOptInfo;
+ 
+ /*
+diff --git a/src/include/optimizer/paths.h b/src/include/optimizer/paths.h
+index 81a9be7..bb7611e 100644
+--- a/src/include/optimizer/paths.h
++++ b/src/include/optimizer/paths.h
+@@ -79,6 +79,10 @@ extern Expr *adjust_rowcompare_for_index(RowCompareExpr *clause,
+ 							int indexcol,
+ 							List **indexcolnos,
+ 							bool *var_on_left_p);
++extern Expr *match_clause_to_ordering_op(IndexOptInfo *index,
++							int indexcol,
++							Expr *clause,
++							Oid pk_opfamily);
+ 
+ /*
+  * tidpath.h

@@ -59,7 +59,6 @@ gisthandler(PG_FUNCTION_ARGS)
 	amroutine->amstrategies = 0;
 	amroutine->amsupport = GISTNProcs;
 	amroutine->amcanorder = false;
-	amroutine->amcanorderbyop = true;
 	amroutine->amcanbackward = false;
 	amroutine->amcanunique = false;
 	amroutine->amcanmulticol = true;
@@ -88,6 +87,7 @@ gisthandler(PG_FUNCTION_ARGS)
 	amroutine->amendscan = gistendscan;
 	amroutine->ammarkpos = NULL;
 	amroutine->amrestrpos = NULL;
+	amroutine->amcanorderbyop = gistcanorderbyop;
 
 	PG_RETURN_POINTER(amroutine);
 }

@@ -56,7 +56,6 @@ hashhandler(PG_FUNCTION_ARGS)
 	amroutine->amstrategies = HTMaxStrategyNumber;
 	amroutine->amsupport = HASHNProcs;
 	amroutine->amcanorder = false;
-	amroutine->amcanorderbyop = false;
 	amroutine->amcanbackward = true;
 	amroutine->amcanunique = false;
 	amroutine->amcanmulticol = false;
@@ -85,6 +84,7 @@ hashhandler(PG_FUNCTION_ARGS)
 	amroutine->amendscan = hashendscan;
 	amroutine->ammarkpos = NULL;
 	amroutine->amrestrpos = NULL;
+	amroutine->amcanorderbyop = NULL;
 
 	PG_RETURN_POINTER(amroutine);
 }

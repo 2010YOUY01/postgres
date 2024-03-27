@@ -39,7 +39,6 @@ ginhandler(PG_FUNCTION_ARGS)
 	amroutine->amstrategies = 0;
 	amroutine->amsupport = GINNProcs;
 	amroutine->amcanorder = false;
-	amroutine->amcanorderbyop = false;
 	amroutine->amcanbackward = false;
 	amroutine->amcanunique = false;
 	amroutine->amcanmulticol = true;
@@ -68,6 +67,7 @@ ginhandler(PG_FUNCTION_ARGS)
 	amroutine->amendscan = ginendscan;
 	amroutine->ammarkpos = NULL;
 	amroutine->amrestrpos = NULL;
+	amroutine->amcanorderbyop = NULL;
 
 	PG_RETURN_POINTER(amroutine);
 }
