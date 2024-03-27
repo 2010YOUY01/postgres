@@ -1618,6 +1618,32 @@ DESCR("greater than or equal");
 DATA(insert OID = 3228 (  "-"	   PGNSP PGUID b f f 3220 3220 1700    0	0 pg_lsn_mi - - ));
 DESCR("minus");
 
+/* distance operators */
+DATA(insert OID = 3365 (  "<->"    PGNSP PGUID b f f   21	21	 21 3365 0 int2_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3366 (  "<->"    PGNSP PGUID b f f   23	23	 23 3366 0 int4_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3367 (  "<->"    PGNSP PGUID b f f   20	20	 20 3367 0 int8_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3368 ( "<->"	   PGNSP PGUID b f f   26	26	 26 3368 0 oid_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3369 (  "<->"    PGNSP PGUID b f f  700  700	700 3369 0 float4_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3370 (  "<->"    PGNSP PGUID b f f  701  701	701 3370 0 float8_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3371 ( "<->"	   PGNSP PGUID b f f  790  790	790 3371 0 cash_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3372 ( "<->"	   PGNSP PGUID b f f 1082 1082	 23 3372 0 date_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3373 ( "<->"	   PGNSP PGUID b f f 1083 1083 1186 3373 0 time_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3374 ( "<->"	   PGNSP PGUID b f f 1114 1114 1186 3374 0 ts_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3375 ( "<->"	   PGNSP PGUID b f f 1184 1184 1186 3375 0 tstz_dist - - ));
+DESCR("distance between");
+DATA(insert OID = 3376 ( "<->"	   PGNSP PGUID b f f 1186 1186 1186 3376 0 interval_dist - - ));
+DESCR("distance between");
+
 /* enum operators */
 DATA(insert OID = 3516 (  "="	   PGNSP PGUID b t t 3500 3500 16 3516 3517 enum_eq eqsel eqjoinsel ));
 DESCR("equal");
