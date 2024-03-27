@@ -248,7 +248,7 @@ CREATE INDEX <replaceable>name</replaceable> ON <replaceable>table</replaceable>
   </para>
 
   <para>
-   GiST indexes are also capable of optimizing <quote>nearest-neighbor</>
+   B-tree and GiST indexes are also capable of optimizing <quote>nearest-neighbor</>
    searches, such as
 <programlisting><![CDATA[
 SELECT * FROM places ORDER BY location <-> point '(101,456)' LIMIT 10;
