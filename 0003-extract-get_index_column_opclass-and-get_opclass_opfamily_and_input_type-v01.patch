@@ -1,0 +1,184 @@
+diff --git a/src/backend/access/gist/gistutil.c b/src/backend/access/gist/gistutil.c
+index 159987e..e1b1a18 100644
+--- a/src/backend/access/gist/gistutil.c
++++ b/src/backend/access/gist/gistutil.c
+@@ -24,6 +24,7 @@
+ #include "storage/lmgr.h"
+ #include "utils/builtins.h"
+ #include "utils/syscache.h"
++#include "utils/lsyscache.h"
+ 
+ 
+ /*
+@@ -852,12 +853,6 @@ gistproperty(Oid index_oid, int attno,
+ 			 IndexAMProperty prop, const char *propname,
+ 			 bool *res, bool *isnull)
+ {
+-	HeapTuple	tuple;
+-	Form_pg_index rd_index PG_USED_FOR_ASSERTS_ONLY;
+-	Form_pg_opclass rd_opclass;
+-	Datum		datum;
+-	bool		disnull;
+-	oidvector  *indclass;
+ 	Oid			opclass,
+ 				opfamily,
+ 				opcintype;
+@@ -891,49 +886,28 @@ gistproperty(Oid index_oid, int attno,
+ 	}
+ 
+ 	/* First we need to know the column's opclass. */
+-
+-	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
+-	if (!HeapTupleIsValid(tuple))
++	opclass = get_index_column_opclass(index_oid, attno);
++	if (!OidIsValid(opclass))
+ 	{
+ 		*isnull = true;
+ 		return true;
+ 	}
+-	rd_index = (Form_pg_index) GETSTRUCT(tuple);
+-
+-	/* caller is supposed to guarantee this */
+-	Assert(attno > 0 && attno <= rd_index->indnatts);
+-
+-	datum = SysCacheGetAttr(INDEXRELID, tuple,
+-							Anum_pg_index_indclass, &disnull);
+-	Assert(!disnull);
+-
+-	indclass = ((oidvector *) DatumGetPointer(datum));
+-	opclass = indclass->values[attno - 1];
+-
+-	ReleaseSysCache(tuple);
+ 
+ 	/* Now look up the opclass family and input datatype. */
+-
+-	tuple = SearchSysCache1(CLAOID, ObjectIdGetDatum(opclass));
+-	if (!HeapTupleIsValid(tuple))
++	if (!get_opclass_opfamily_and_input_type(opclass, &opfamily, &opcintype))
+ 	{
+ 		*isnull = true;
+ 		return true;
+ 	}
+-	rd_opclass = (Form_pg_opclass) GETSTRUCT(tuple);
+-
+-	opfamily = rd_opclass->opcfamily;
+-	opcintype = rd_opclass->opcintype;
+-
+-	ReleaseSysCache(tuple);
+ 
+ 	/* And now we can check whether the function is provided. */
+-
+ 	*res = SearchSysCacheExists4(AMPROCNUM,
+ 								 ObjectIdGetDatum(opfamily),
+ 								 ObjectIdGetDatum(opcintype),
+ 								 ObjectIdGetDatum(opcintype),
+ 								 Int16GetDatum(procno));
++	isnull = false;
++
+ 	return true;
+ }
+ 
+diff --git a/src/backend/utils/cache/lsyscache.c b/src/backend/utils/cache/lsyscache.c
+index aff88a5..26c81c9 100644
+--- a/src/backend/utils/cache/lsyscache.c
++++ b/src/backend/utils/cache/lsyscache.c
+@@ -1050,6 +1050,32 @@ get_opclass_input_type(Oid opclass)
+ 	return result;
+ }
+ 
++/*
++ * get_opclass_family_and_input_type
++ *
++ *		Returns the OID of the operator family the opclass belongs to,
++ *				the OID of the datatype the opclass indexes
++ */
++bool
++get_opclass_opfamily_and_input_type(Oid opclass, Oid *opfamily, Oid *opcintype)
++{
++	HeapTuple	tp;
++	Form_pg_opclass cla_tup;
++
++	tp = SearchSysCache1(CLAOID, ObjectIdGetDatum(opclass));
++	if (!HeapTupleIsValid(tp))
++		return false;
++
++	cla_tup = (Form_pg_opclass) GETSTRUCT(tp);
++
++	*opfamily = cla_tup->opcfamily;
++	*opcintype = cla_tup->opcintype;
++
++	ReleaseSysCache(tp);
++
++	return true;
++}
++
+ /*				---------- OPERATOR CACHE ----------					 */
+ 
+ /*
+@@ -3061,3 +3087,45 @@ get_range_subtype(Oid rangeOid)
+ 	else
+ 		return InvalidOid;
+ }
++
++/*				---------- PG_INDEX CACHE ----------				 */
++
++/*
++ * get_index_column_opclass
++ *
++ *		Given the index OID and column number,
++ *		return opclass of the index column
++ *			or InvalidOid if the index was not found.
++ */
++Oid
++get_index_column_opclass(Oid index_oid, int attno)
++{
++	HeapTuple	tuple;
++	Form_pg_index rd_index PG_USED_FOR_ASSERTS_ONLY;
++	Datum		datum;
++	bool		isnull;
++	oidvector  *indclass;
++	Oid			opclass;
++
++	/* First we need to know the column's opclass. */
++
++	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
++	if (!HeapTupleIsValid(tuple))
++		return InvalidOid;
++
++	rd_index = (Form_pg_index) GETSTRUCT(tuple);
++
++	/* caller is supposed to guarantee this */
++	Assert(attno > 0 && attno <= rd_index->indnatts);
++
++	datum = SysCacheGetAttr(INDEXRELID, tuple,
++							Anum_pg_index_indclass, &isnull);
++	Assert(!isnull);
++
++	indclass = ((oidvector *) DatumGetPointer(datum));
++	opclass = indclass->values[attno - 1];
++
++	ReleaseSysCache(tuple);
++
++	return opclass;
++}
+diff --git a/src/include/utils/lsyscache.h b/src/include/utils/lsyscache.h
+index b6d1fca..618c4e8 100644
+--- a/src/include/utils/lsyscache.h
++++ b/src/include/utils/lsyscache.h
+@@ -73,6 +73,8 @@ extern char *get_constraint_name(Oid conoid);
+ extern char *get_language_name(Oid langoid, bool missing_ok);
+ extern Oid	get_opclass_family(Oid opclass);
+ extern Oid	get_opclass_input_type(Oid opclass);
++extern bool get_opclass_opfamily_and_input_type(Oid opclass,
++									Oid *opfamily, Oid *opcintype);
+ extern RegProcedure get_opcode(Oid opno);
+ extern char *get_opname(Oid opno);
+ extern Oid	get_op_rettype(Oid opno);
+@@ -159,6 +161,7 @@ extern void free_attstatsslot(Oid atttype,
+ extern char *get_namespace_name(Oid nspid);
+ extern char *get_namespace_name_or_temp(Oid nspid);
+ extern Oid	get_range_subtype(Oid rangeOid);
++extern Oid	get_index_column_opclass(Oid index_oid, int attno);
+ 
+ #define type_is_array(typid)  (get_element_type(typid) != InvalidOid)
+ /* type_is_array_domain accepts both plain arrays and domains over arrays */
